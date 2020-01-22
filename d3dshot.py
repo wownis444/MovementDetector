@@ -8,7 +8,6 @@ import time
 from d3dshot.display import Display
 from d3dshot.capture_output import CaptureOutput, CaptureOutputs
 
-
 import base64
 import numpy as np
 import sys
@@ -19,17 +18,19 @@ import cv2
 import time
 from PyQt5.QtCore import *
 
+
 class Thread(QThread):
     changePixmap = pyqtSignal(QImage)
 
     def __init__(self,
-        capture_output=CaptureOutputs.PIL,
-        frame_buffer_size=60,
-        pil_is_available=True,
-        numpy_is_available=False,
-        pytorch_is_available=False,
-        pytorch_gpu_is_available=False,
-    ):
+                 capture_output=CaptureOutputs.PIL,
+                 frame_buffer_size=60,
+                 pil_is_available=True,
+                 numpy_is_available=False,
+                 pytorch_is_available=False,
+                 pytorch_gpu_is_available=False,
+                 obszar=(200, 100)
+                 ):
         super().__init__()
         self.displays = None
         self.detect_displays()
@@ -48,6 +49,7 @@ class Thread(QThread):
 
         self.previous_screenshot = None
 
+        self.obszar = obszar
         self.region = None
 
         self._pil_is_available = pil_is_available
@@ -101,36 +103,72 @@ class Thread(QThread):
 
         return region
 
+    def wyrownaj_obraz(self, image):
+        shape = image.shape
+        new_image = np.zeros_like(image)
+        for i in range(314, 314 + 140):
+            new_image[i, :] = np.roll(image[i, :], (-i * 6))
+
+        return new_image
+
+    def cut_region(self, image, region):
+        shp = image.shape
+        beg_y = (image.shape[0] // 2) - (region[0] // 2)
+        width = (beg_y, beg_y + region[0])
+        beg_x = (image.shape[1] // 2) - (region[1] // 2)
+        height = (beg_x, beg_x + region[1])
+
+        return image[width[0]:width[1], height[0]:height[1]]
+
+    def process_image(self, image):
+        # diff = cv2.absdiff(first_frame, frame)
+        # diff = cv2.cvtColor(diff, cv2.COLOR_RGB2GRAY)
+        # _, diff = cv2.threshold(diff, 10, 255, cv2.THRESH_BINARY)
+        # first_frame = frame
+        # print("ASDASD")
+        ret = cv2.resize(image, (self.obszar[1] * 2, self.obszar[0] * 2))
+        # kernel = np.array([[-1, -1, -1], [-1, 9, -1], [-1, -1, -1]])
+        # ret = cv2.filter2D(ret, -1, kernel)
+        return ret
+
     def run(self):
-        target_fps = 25
+        target_fps = 35
         frame_time = 1 / target_fps
         print("aaaaa")
         try:
+            i = 0
             while True:
                 cycle_start = time.time()
-                print("BBB")
-
                 region = None
                 frame = self.display.capture(
                     self.capture_output.process,
                     region=self._validate_region(region)
                 )
-
-                print("CCC")
                 if frame is not None:
-                    print("ASDASD")
-                    cv2.imshow("adad",frame)
-                    if cv2.waitKey(1) & 0xFF == ord('q'):
-                        break
-                    # img = base64.b64decode(frame)
-                    # npimg = np.fromstring(img, dtype=np.uint8)
-                    # source = cv2.imdecode(npimg, 1)
-                    #
-                    # h, w, ch = source.shape
-                    # bytesPerLine = ch * w
-                    # convertToQtFormat = QtGui.QImage(source.data, w, h, bytesPerLine, QtGui.QImage.Format_RGB888)
-                    # self.changePixmap.emit(convertToQtFormat)
+                    # obszar = (140//2,250//2)
+                    # frame = self.wyrownaj_obraz(frame)
+                    frame = self.cut_region(frame, self.obszar)
+                    print(frame.shape)
+                    # frame = cv2.resize(frame, (frame.shape[1] // 4, frame.shape[0] // 4))
+                    if i == 0:
+                        first_frame = frame
+                    else:
+                        img = self.process_image(frame)
 
+                        # cv2.imshow("adad", img)
+
+                        # img = base64.b64decode(frame)
+                        # npimg = np.fromstring(img, dtype=np.uint8)
+                        source = img
+                        h, w, ch = source.shape
+                        bytesPerLine = 3 * w
+                        cv2.cvtColor(source, cv2.COLOR_BGR2RGB, source)
+                        print(source.shape)
+                        convertToQtFormat = QtGui.QImage(source.data, w, h, bytesPerLine, QtGui.QImage.Format_RGB888)
+                        self.changePixmap.emit(convertToQtFormat)
+
+                        # if cv2.waitKey(1) & 0xFF == ord('q'):
+                        #     break
                 gc.collect()
 
                 cycle_end = time.time()
@@ -139,22 +177,24 @@ class Thread(QThread):
                 if frame_time_left > 0:
                     time.sleep(frame_time_left)
 
+                i += 1
         except Exception as e:
             print(e)
 
         cv2.destroyAllWindows()
         self._is_capturing = False
 
+
 class D3DShot:
 
     def __init__(
-        self,
-        capture_output=CaptureOutputs.PIL,
-        frame_buffer_size=60,
-        pil_is_available=True,
-        numpy_is_available=False,
-        pytorch_is_available=False,
-        pytorch_gpu_is_available=False,
+            self,
+            capture_output=CaptureOutputs.PIL,
+            frame_buffer_size=60,
+            pil_is_available=True,
+            numpy_is_available=False,
+            pytorch_is_available=False,
+            pytorch_gpu_is_available=False,
     ):
         self.displays = None
         self.detect_displays()
@@ -296,7 +336,8 @@ class D3DShot:
 
         self._is_capturing = True
 
-        self._capture_thread = threading.Thread(target=self._screenshot_to_disk_every, args=(interval, directory, region))
+        self._capture_thread = threading.Thread(target=self._screenshot_to_disk_every,
+                                                args=(interval, directory, region))
         self._capture_thread.start()
 
         return True
@@ -442,7 +483,6 @@ class D3DShot:
                 time.sleep(frame_time_left)
 
         self._is_capturing = False
-
 
     def _screenshot_every(self, interval, region):
         self._reset_frame_buffer()
